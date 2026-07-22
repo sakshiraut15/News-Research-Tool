@@ -9,3 +9,4 @@ faiss-cpu
 tiktoken
 unstructured
 beautifulsoup4
+python-dotenv
