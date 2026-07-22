@@ -1,11 +1,10 @@
 streamlit
 langchain
 langchain-community
-langchain-openai
+langchain-google-genai
 langchain-text-splitters
 langchain-core
 langchain-classic
-openai
 faiss-cpu
 tiktoken
 unstructured

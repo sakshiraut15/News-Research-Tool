@@ -1,18 +1,27 @@
 import os
-import streamlit as st
-import pickle
 import time
+import pickle
+import streamlit as st
 
-from langchain_openai import OpenAI, OpenAIEmbeddings
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    GoogleGenerativeAIEmbeddings,
+)
+
 from langchain_classic.chains import RetrievalQAWithSourcesChain
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_community.vectorstores import FAISS
 
 
-# Load OpenAI API Key from Streamlit Secrets
-os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+# Load API Key from Streamlit Secrets
+os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
+
+st.set_page_config(
+    page_title="RockyBot: News Research Tool",
+    page_icon="📈"
+)
 
 st.title("RockyBot: News Research Tool 📈")
 
@@ -24,173 +33,94 @@ for i in range(3):
     url = st.sidebar.text_input(f"URL {i+1}")
     urls.append(url)
 
-
 process_url_clicked = st.sidebar.button("Process URLs")
 
-
-file_path = "faiss_store_openai.pkl"
-
+file_path = "faiss_store_gemini.pkl"
 
 main_placeholder = st.empty()
 
 
-# OpenAI LLM
-llm = OpenAI(
-    temperature=0.9,
-    max_tokens=500,
-    api_key=st.secrets["OPENAI_API_KEY"]
+# Gemini LLM
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    temperature=0.7,
 )
 
 
 if process_url_clicked:
 
-    # Remove empty URLs
     urls = [url for url in urls if url.strip()]
 
-
     if len(urls) == 0:
-        st.warning("Please enter at least one URL")
+        st.warning("Please enter at least one URL.")
         st.stop()
 
+    main_placeholder.text("Loading articles...")
 
-    # Load article data
-    loader = UnstructuredURLLoader(
-        urls=urls
-    )
-
-
-    main_placeholder.text(
-        "Data Loading...Started...✅✅✅"
-    )
-
+    loader = UnstructuredURLLoader(urls=urls)
 
     data = loader.load()
 
+    main_placeholder.text("Splitting documents...")
 
-
-    # Split documents
-    text_splitter = RecursiveCharacterTextSplitter(
-        separators=[
-            "\n\n",
-            "\n",
-            ".",
-            ","
-        ],
+    splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
-        chunk_overlap=200
+        chunk_overlap=200,
     )
 
+    docs = splitter.split_documents(data)
 
-    main_placeholder.text(
-        "Text Splitter...Started...✅✅✅"
+    main_placeholder.text("Creating embeddings...")
+
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001"
     )
 
-
-    docs = text_splitter.split_documents(data)
-
-
-
-    # Create embeddings
-    embeddings = OpenAIEmbeddings(
-        api_key=st.secrets["OPENAI_API_KEY"]
-    )
-
-
-    vectorstore_openai = FAISS.from_documents(
+    vectorstore = FAISS.from_documents(
         docs,
-        embeddings
+        embeddings,
     )
-
-
-    main_placeholder.text(
-        "Embedding Vector Started Building...✅✅✅"
-    )
-
-
-    time.sleep(2)
-
-
-
-    # Save FAISS index
 
     with open(file_path, "wb") as f:
-        pickle.dump(
-            vectorstore_openai,
-            f
-        )
+        pickle.dump(vectorstore, f)
+
+    st.success("URLs processed successfully ✅")
 
 
-    st.success(
-        "URLs processed successfully ✅"
-    )
-
-
-
-
-query = main_placeholder.text_input(
-    "Question:"
-)
-
-
+query = st.text_input("Question:")
 
 if query:
 
-    if os.path.exists(file_path):
+    if not os.path.exists(file_path):
+        st.warning("Please process URLs first.")
+        st.stop()
 
-        with open(file_path, "rb") as f:
+    with open(file_path, "rb") as f:
+        vectorstore = pickle.load(f)
 
-            vectorstore = pickle.load(f)
+    chain = RetrievalQAWithSourcesChain.from_llm(
+        llm=llm,
+        retriever=vectorstore.as_retriever(),
+    )
 
+    result = chain.invoke(
+        {
+            "question": query
+        }
+    )
 
+    st.header("Answer")
 
-        chain = RetrievalQAWithSourcesChain.from_llm(
-            llm=llm,
-            retriever=vectorstore.as_retriever()
-        )
+    st.write(result["answer"])
 
+    sources = result.get("sources", "")
 
+    if sources:
 
-        result = chain.invoke(
-            {
-                "question": query
-            }
-        )
+        st.subheader("Sources")
 
+        for source in sources.split("\n"):
 
+            if source.strip():
 
-        st.header("Answer")
-
-
-        st.write(
-            result["answer"]
-        )
-
-
-
-        sources = result.get(
-            "sources",
-            ""
-        )
-
-
-
-        if sources:
-
-            st.subheader(
-                "Sources:"
-            )
-
-
-            sources_list = sources.split("\n")
-
-
-            for source in sources_list:
                 st.write(source)
-
-
-
-    else:
-
-        st.warning(
-            "Please process URLs first"
-        )
